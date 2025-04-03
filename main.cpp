@@ -1,8 +1,11 @@
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <queue>
 #include <stack>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class Record {
@@ -29,11 +32,16 @@ class BPTNode {
 class BPlusTree {
    private:
     int degree;
+    int internalMin;
+    int leafMin;
     std::shared_ptr<BPTNode> root;
+    std::shared_ptr<BPTNode> firstNode;
 
    public:
     BPlusTree(int degree) {
         this->degree = degree;
+        this->leafMin = (degree - 1) / 2 + degree % 2;  // ceil(n-1/2)
+        this->internalMin = degree / 2;  // 키 수 = 최소포인터수-1 = ceil(n/2)-1
         this->root = nullptr;
     }
 
@@ -101,6 +109,7 @@ class BPlusTree {
             root = std::make_shared<BPTNode>(true);
             root->keys.emplace_back(
                 key, std::make_shared<Record>(key, name, age, department));
+            firstNode = root;
             return true;
         }
 
@@ -186,6 +195,131 @@ class BPlusTree {
             }
 
             p = parent;
+        }
+
+        return true;
+    }
+
+    bool deleteByKey(const std::string query) {
+        if (root.get() == nullptr) {
+            return false;
+        }
+        std::shared_ptr<BPTNode> p = root;
+        std::stack<std::shared_ptr<BPTNode>> ancestors;
+        std::stack<std::pair<std::shared_ptr<BPTNode>, char>> siblings;
+        while (!p->isLeaf) {
+            ancestors.emplace(p);
+            int i = 0;
+            while (i < p->keys.size() && query < p->keys[i].first) {
+                i++;
+            }
+            if (i == 0) {
+                siblings.emplace(p->children[1], 'R');
+            } else {
+                siblings.emplace(p->children[i - 1], 'L');
+            }
+            p = p->children[i];
+        }
+
+        bool leafDeleted = false;
+        bool internalDeleted = false;
+        std::unordered_set<std::string> internalDeletionTable;
+        std::unordered_map<std::string, std::string> internalReplaceTable;
+        while (true) {
+            // base case:: 리프 삭제되고 더처리할 내부노드도 없다? 리턴 ㄱ
+            if (leafDeleted && internalDeletionTable.empty() &&
+                internalReplaceTable.empty())
+                return true;
+            // 삭제 처리
+            // 1. 리프인가?
+            // 2. 0번 키를 삭제했나?
+            if (p->isLeaf) {
+                int ii = 0;
+                while (ii < p->keys.size()) {
+                    if (query == p->keys[ii].first) {
+                        leafDeleted = true;
+                        break;
+                    }
+                    ii++;
+                }
+                if (!leafDeleted)
+                    return false;
+                else
+                    p->keys.erase(p->keys.begin() + ii);
+                std::string propagate_key;
+                if (ii == 0) {
+                    propagate_key = p->keys[0].first;
+                    if (p != firstNode) internalDeletionTable.insert(query);
+                }
+
+                if (ancestors.empty()) {
+                    if (p->keys.empty()) {
+                        root = p->children[0];
+                    }
+                    break;
+                }
+                std::shared_ptr parent = ancestors.top();
+                ancestors.pop();
+                std::shared_ptr sibling = siblings.top().first;
+                char siblingDir = siblings.top().second;
+                siblings.pop();
+
+                // underflow
+                if (p->keys.size() < leafMin) {
+                    if (siblingDir == 'R') {
+                        // merge vs redistribute
+                        if (p->keys.size() + sibling->keys.size() < degree) {
+                            // merge
+
+                            int siblingPastsize = sibling->keys.size();
+                            sibling->keys.resize(p->keys.size() +
+                                                 siblingPastsize);
+                            std::move_backward(
+                                sibling->keys.begin(),
+                                sibling->keys.begin() + siblingPastsize,
+                                sibling->keys.end());
+                            for (int i = 0; i < p->keys.size(); i++) {
+                                sibling->keys[i] = p->keys[i];
+                            }
+                            parent->keys.erase(parent->keys.begin());
+                            internalReplaceTable[parent->keys[0].first] =
+                                propagate_key;
+                            parent->children.erase(parent->children.begin());
+                        } else {
+                            // redistribute
+
+                            // 내부노드 내 대체테이블에 등록
+                            internalReplaceTable[sibling->keys[0].first] =
+                                sibling->keys[1].first;
+                            p->keys.emplace_back(sibling->keys[0]);
+                            sibling->keys.erase(sibling->keys.begin());
+                        }
+                    } else {
+                        // siblingDir == 'L'
+                        // merge vs redistribute
+                        if (p->keys.size() + sibling->keys.size() < degree) {
+                            // merge
+                            internalDeletionTable.insert(p->keys[0].first);
+                            for (int i = 0; i < p->keys.size(); i++) {
+                                sibling->keys.emplace_back(p->keys[i]);
+                            }
+                            for (int i = 0; i < parent->keys.size(); i++) {
+                                if (query >= parent->keys[i].first) {
+                                    parent->children.erase(
+                                        parent->children.begin() + i + 1);
+                                    break;
+                                }
+                            }
+                        } else {
+                            // redistribute
+                            // 여기부터
+                        }
+                    }
+                }
+
+            } else {
+                // Internal Processing
+            }
         }
 
         return true;
