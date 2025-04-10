@@ -1,11 +1,9 @@
-#include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <memory>
 #include <queue>
 #include <stack>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 class Record {
@@ -40,8 +38,9 @@ class BPlusTree {
    public:
     BPlusTree(int degree) {
         this->degree = degree;
-        this->leafMin = (degree - 1) / 2 + degree % 2;  // ceil(n-1/2)
-        this->internalMin = degree / 2;  // 키 수 = 최소포인터수-1 = ceil(n/2)-1
+        this->leafMin = (degree - 1) / 2 + (degree - 1) % 2;  // ceil(n-1/2)
+        this->internalMin = degree / 2 + degree % 2 -
+                            1;  // 키 수 = 최소포인터수-1 = ceil(n/2)-1
         this->root = nullptr;
     }
 
@@ -200,126 +199,122 @@ class BPlusTree {
         return true;
     }
 
-    bool deleteByKey(const std::string query) {
-        if (root.get() == nullptr) {
-            return false;
+    void remove(const std::string query) {
+        // 루트가 NULL이거나 삭제에 실패 시 따로 알림
+        if (!root || !deleteRecursively(query, root, nullptr, nullptr, -1,
+                                        nullptr, -1)) {
+            std::cout << "Entry " << query << " not found!\n";
         }
-        std::shared_ptr<BPTNode> p = root;
-        std::stack<std::shared_ptr<BPTNode>> ancestors;
-        std::stack<std::pair<std::shared_ptr<BPTNode>, char>> siblings;
-        while (!p->isLeaf) {
-            ancestors.emplace(p);
-            int i = 0;
-            while (i < p->keys.size() && query < p->keys[i].first) {
-                i++;
-            }
-            if (i == 0) {
-                siblings.emplace(p->children[1], 'R');
-            } else {
-                siblings.emplace(p->children[i - 1], 'L');
-            }
-            p = p->children[i];
-        }
+    }
 
-        bool leafDeleted = false;
-        bool internalDeleted = false;
-        std::unordered_set<std::string> internalDeletionTable;
-        std::unordered_map<std::string, std::string> internalReplaceTable;
-        while (true) {
-            // base case:: 리프 삭제되고 더처리할 내부노드도 없다? 리턴 ㄱ
-            if (leafDeleted && internalDeletionTable.empty() &&
-                internalReplaceTable.empty())
-                return true;
-            // 삭제 처리
-            // 1. 리프인가?
-            // 2. 0번 키를 삭제했나?
-            if (p->isLeaf) {
-                int ii = 0;
-                while (ii < p->keys.size()) {
-                    if (query == p->keys[ii].first) {
-                        leafDeleted = true;
-                        break;
-                    }
-                    ii++;
-                }
-                if (!leafDeleted)
-                    return false;
-                else
-                    p->keys.erase(p->keys.begin() + ii);
-                std::string propagate_key;
-                if (ii == 0) {
-                    propagate_key = p->keys[0].first;
-                    if (p != firstNode) internalDeletionTable.insert(query);
-                }
-
-                if (ancestors.empty()) {
-                    if (p->keys.empty()) {
-                        root = p->children[0];
-                    }
+    // p는 현재 노드
+    // parent는 부모 노드
+    // leftSibling은 왼쪽 형제,
+    // leftAnchor는 왼쪽 형제와 p의 분기가 되는 부모 노드의 key의 인덱스
+    // rightSibling은 왼쪽 형제,
+    // rightAnchor는 오른쪽 형제와 p의 분기가 되는 부모 노드의 key의인덱스
+    bool deleteRecursively(const std::string entry, std::shared_ptr<BPTNode> p,
+                           std::shared_ptr<BPTNode> parent,
+                           std::shared_ptr<BPTNode> leftSibling, int leftAnchor,
+                           std::shared_ptr<BPTNode> rightSibling,
+                           int rightAnchor) {
+        // 0. 리프인가?
+        if (p->isLeaf) {
+            // 1. 리프에서 해당 값 제거
+            bool deleted = false;
+            for (int i = 0; i < p->keys.size(); i++) {
+                if (entry == p->keys[i].first) {
+                    p->keys.erase(p->keys.begin() + i);
+                    deleted = true;
                     break;
                 }
-                std::shared_ptr parent = ancestors.top();
-                ancestors.pop();
-                std::shared_ptr sibling = siblings.top().first;
-                char siblingDir = siblings.top().second;
-                siblings.pop();
+            }
+            if (!deleted) return false;
 
-                // underflow
-                if (p->keys.size() < leafMin) {
-                    if (siblingDir == 'R') {
-                        // merge vs redistribute
-                        if (p->keys.size() + sibling->keys.size() < degree) {
-                            // merge
+            // 2. 언더플로우인가?
+            // 언더플로우 아니면, 빠른 리턴
+            if (p->keys.size() >= leafMin) return true;
+            // 만약 리프이자 루트인데 언더플로우? 그러면 그냥 유지..
+            if (p->keys.empty() && p == root) return true;
 
-                            int siblingPastsize = sibling->keys.size();
-                            sibling->keys.resize(p->keys.size() +
-                                                 siblingPastsize);
-                            std::move_backward(
-                                sibling->keys.begin(),
-                                sibling->keys.begin() + siblingPastsize,
-                                sibling->keys.end());
-                            for (int i = 0; i < p->keys.size(); i++) {
-                                sibling->keys[i] = p->keys[i];
-                            }
-                            parent->keys.erase(parent->keys.begin());
-                            internalReplaceTable[parent->keys[0].first] =
-                                propagate_key;
-                            parent->children.erase(parent->children.begin());
-                        } else {
-                            // redistribute
+            // 3. 왼쪽과 병합 시도..
+            // 4. 오른쪽과 병합 시도..
+            // 5. 둘 다 안된다? 양쪽 병합 후 redistribution..
+            if (p->keys.size() + leftSibling->keys.size() < degree) {
+                // 왼쪽과 병합 시도
+                for (int i = 0; i < p->keys.size(); i++) {
+                    leftSibling->keys.emplace_back(p->keys[i]);
+                }
+                // leftAnchor와 p삭제
+                leftSibling->next = p->next;
+                parent->children.erase(parent->children.begin() + leftAnchor);
+                parent->keys.erase(parent->keys.begin() + leftAnchor);
+            } else if (p->keys.size() + rightSibling->keys.size() < degree) {
+                // 왼쪽과 병합 시도
+                for (int i = 0; i < rightSibling->keys.size(); i++) {
+                    p->keys.emplace_back(rightSibling->keys[i]);
+                }
+                // rightAnchor와 p삭제
+                p->next = rightSibling->next;
+                parent->children.erase(parent->children.begin() + rightAnchor);
+                parent->keys.erase(parent->keys.begin() + rightAnchor);
+            } else {
+                // 양쪽 다 병합
+                int sumOfKeys = leftSibling->keys.size() + p->keys.size() +
+                                rightSibling->keys.size();
 
-                            // 내부노드 내 대체테이블에 등록
-                            internalReplaceTable[sibling->keys[0].first] =
-                                sibling->keys[1].first;
-                            p->keys.emplace_back(sibling->keys[0]);
-                            sibling->keys.erase(sibling->keys.begin());
-                        }
-                    } else {
-                        // siblingDir == 'L'
-                        // merge vs redistribute
-                        if (p->keys.size() + sibling->keys.size() < degree) {
-                            // merge
-                            internalDeletionTable.insert(p->keys[0].first);
-                            for (int i = 0; i < p->keys.size(); i++) {
-                                sibling->keys.emplace_back(p->keys[i]);
-                            }
-                            for (int i = 0; i < parent->keys.size(); i++) {
-                                if (query >= parent->keys[i].first) {
-                                    parent->children.erase(
-                                        parent->children.begin() + i + 1);
-                                    break;
-                                }
-                            }
-                        } else {
-                            // redistribute
-                            // 여기부터
-                        }
-                    }
+                // p가 left에게 줌..
+                int idx = 0;
+                while (leftSibling->keys.size() < sumOfKeys / 2) {
+                    leftSibling->keys.emplace_back(p->keys[idx]);
+                    idx++;
+                }
+                // p에서 left에 준만큼 자르기
+                p->keys.erase(p->keys.begin(), p->keys.begin() + idx);
+
+                // right가 p에 줌..
+                idx = 0;
+                while (leftSibling->keys.size() < sumOfKeys / 2) {
+                    leftSibling->keys.emplace_back(rightSibling->keys[idx]);
+                    idx++;
                 }
 
-            } else {
-                // Internal Processing
+                // right[idx:]부터는 다 p로 밀어버리기
+                for (int i = idx; i < rightSibling->keys.size(); i++) {
+                    p->keys.emplace_back(rightSibling->keys[i]);
+                }
+                // 부모 노드에서 정리..
+                parent->keys.erase(parent->keys.begin() + rightAnchor);
+                parent->keys.erase(parent->keys.begin() + leftAnchor);
+                parent->children.erase(parent->children.begin() + rightAnchor);
             }
+
+            return true;
+        } else {
+            // 1. 리프에 재귀호출해서 리프 삭제 먼저 시키기
+            bool res;  // 재귀 호출의 응답
+            if (entry < p->keys[0].first) {
+                res = deleteRecursively(entry, p->children[0], p, nullptr, -1,
+                                        p->children[1], 0);
+            } else {
+                for (int i = 0; i < p->keys.size(); i++) {
+                    if (entry >= p->keys[i].first) {
+                        if (i == p->keys.size() - 1)
+                            res = deleteRecursively(
+                                entry, p->children.back(), p,
+                                p->children[p->keys.size() - 1], p->keys.size(),
+                                nullptr, -1);
+                        else
+                            res = deleteRecursively(entry, p->children[i + 1],
+                                                    p, p->children[i], i,
+                                                    p->children[i + 2], i + 1);
+                        break;
+                    }
+                }
+            }
+
+            // 만약 리프로부터 삭제 실패소식이 전파되어 올라오면, 연쇄하여 전파
+            if (!res) return false;
         }
 
         return true;
