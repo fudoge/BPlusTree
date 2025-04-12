@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#define MAXDEGREE 4
+
 class Record {
    public:
     std::string id;
@@ -34,6 +36,52 @@ class BPlusTree {
     int leafMin;
     std::shared_ptr<BPTNode> root;
     std::shared_ptr<BPTNode> firstNode;
+
+    std::shared_ptr<BPTNode> makeNodeWithInteraction(int nodeNum) {
+        bool isLeaf = false;
+        std::string temp;
+        int numberOfKeys;
+        int numberOfChildren;
+        std::cout << "Node " << nodeNum << ":\n";
+        std::cout << "Is it a leaf node? If leaf, input 'y' or 'Y', otherwise, "
+                     "type any.\n";
+        std::getline(std::cin, temp);
+        isLeaf = temp == "Y" || temp == "y";
+
+        std::cout << "How many keys it has?\n";
+        std::getline(std::cin, temp);
+        numberOfKeys = stoi(temp);
+        if (numberOfKeys < 0 || numberOfKeys >= degree) {
+            std::cout << "Invalid Input.\n Trees will be rollbacked.\n";
+            return NULL;
+        }
+
+        std::shared_ptr<BPTNode> p = std::make_shared<BPTNode>(isLeaf);
+        std::cout << "Please Input the keys in 0-indexed.\n";
+        for (int i = 0; i < numberOfKeys; i++) {
+            std::cout << "Key[" << i << "]:\n";
+            std::string temp;
+            std::getline(std::cin, temp);
+            p->keys.emplace_back(temp, nullptr);
+        }
+        return p;
+    }
+
+    std::shared_ptr<Record> iniTializeRecord(std::string key) {
+        std::string name, age, department;
+        std::cout << "\n[Record Initialization for key " << key << "]\n";
+        std::cout << "Input the Informations line by line:\n";
+
+        std::cout << "Name: ";
+        std::getline(std::cin, name);
+
+        std::cout << "Age: ";
+        std::getline(std::cin, age);
+
+        std::cout << "Department: ";
+        std::getline(std::cin, department);
+        return std::make_shared<Record>(key, name, stoi(age), department);
+    }
 
    public:
     BPlusTree(int degree) {
@@ -79,6 +127,47 @@ class BPlusTree {
             }
         }
         std::cout << "\n";
+    }
+
+    void initializeWithInteraction() {
+        std::cout << "\n[Initialize the B+Tree]\n";
+        std::cout << "Number your node starting from root with 1 in full "
+                     "binary-tree order\n";
+
+        std::queue<
+            std::tuple<int, std::shared_ptr<BPTNode>, std::shared_ptr<BPTNode>>>
+            q;
+        std::shared_ptr<BPTNode> newRoot = makeNodeWithInteraction(1);
+
+        if (newRoot == nullptr) return;
+        q.emplace(1, nullptr, newRoot);
+
+        int maxNodeNum = 1;
+        while (!q.empty()) {
+            int nodeNum;
+            std::shared_ptr<BPTNode> parent, current;
+            tie(nodeNum, parent, current) = q.front();
+            q.pop();
+
+            if (parent) parent->children.emplace_back(current);
+
+            if (current->isLeaf) {
+                current->next = !q.empty() ? std::get<2>(q.front()) : nullptr;
+                for (int i = 0; i < current->keys.size(); i++) {
+                    current->keys[i].second =
+                        iniTializeRecord(current->keys[i].first);
+                }
+                continue;
+            }
+            for (int i = 0; i <= current->keys.size(); i++) {
+                std::shared_ptr<BPTNode> p =
+                    makeNodeWithInteraction(++maxNodeNum);
+                if (p == nullptr) return;
+                q.emplace(maxNodeNum, current, p);
+            }
+        }
+
+        root = newRoot;
     }
 
     std::shared_ptr<Record> search(const std::string query) {
@@ -240,24 +329,178 @@ class BPlusTree {
             // 3. 왼쪽과 병합 시도..
             // 4. 오른쪽과 병합 시도..
             // 5. 둘 다 안된다? 양쪽 병합 후 redistribution..
-            if (p->keys.size() + leftSibling->keys.size() < degree) {
+            if ((leftSibling &&
+                 p->keys.size() + leftSibling->keys.size() < degree) ||
+                !rightSibling) {
                 // 왼쪽과 병합 시도
                 for (int i = 0; i < p->keys.size(); i++) {
                     leftSibling->keys.emplace_back(p->keys[i]);
                 }
-                // leftAnchor와 p삭제
-                leftSibling->next = p->next;
-                parent->children.erase(parent->children.begin() + leftAnchor);
-                parent->keys.erase(parent->keys.begin() + leftAnchor);
-            } else if (p->keys.size() + rightSibling->keys.size() < degree) {
-                // 왼쪽과 병합 시도
+                if (leftSibling->keys.size() < degree) {
+                    // redistribution 필요 없음..
+                    // leftAnchor와 p삭제
+                    leftSibling->next = p->next;
+                    parent->children.erase(parent->children.begin() +
+                                           leftAnchor);
+                    parent->keys.erase(parent->keys.begin() + leftAnchor);
+                } else {
+                    // redistribution
+                    int mid = leftSibling->keys.size() / 2;
+                    p->keys.resize(leftSibling->keys.size() - mid);
+                    for (int i = 1; i + mid < leftSibling->keys.size(); i++) {
+                        p->keys[i - 1] = leftSibling->keys[mid + i];
+                    }
+                    leftSibling->keys.resize(mid);
+                    parent->keys[leftAnchor].first = leftSibling->keys[0].first;
+                }
+
+            } else if ((rightSibling &&
+                        p->keys.size() + rightSibling->keys.size() < degree) ||
+                       !leftSibling) {
+                // 오른쪽과 병합 시도
                 for (int i = 0; i < rightSibling->keys.size(); i++) {
                     p->keys.emplace_back(rightSibling->keys[i]);
                 }
-                // rightAnchor와 p삭제
-                p->next = rightSibling->next;
-                parent->children.erase(parent->children.begin() + rightAnchor);
+                if (rightSibling->keys.size() < degree) {
+                    // redistribution 필요 없음..
+                    // rightAnchor와 p삭제
+                    p->next = rightSibling->next;
+                    parent->children.erase(parent->children.begin() +
+                                           rightAnchor);
+                    parent->keys.erase(parent->keys.begin() + rightAnchor);
+                } else {
+                    // redistribution
+                    int mid = rightSibling->keys.size() / 2;
+                    rightSibling->keys.resize(p->keys.size() - mid);
+                    for (int i = 1; i + mid < p->keys.size(); i++) {
+                        rightSibling->keys[i - 1] = p->keys[mid + i];
+                    }
+                    p->keys.resize(mid);
+                    parent->keys[rightAnchor].first =
+                        rightSibling->keys[0].first;
+                }
+            } else {
+                // 양쪽 다 병합
+                int sumOfKeys = leftSibling->keys.size() + p->keys.size() +
+                                rightSibling->keys.size();
+
+                // p가 left에게 줌..
+                int idx = 0;
+                while (leftSibling->keys.size() < sumOfKeys / 2) {
+                    leftSibling->keys.emplace_back(p->keys[idx]);
+                    idx++;
+                }
+                // p에서 left에 준만큼 자르기
+                p->keys.erase(p->keys.begin(), p->keys.begin() + idx);
+
+                // right가 p에 줌..
+                idx = 0;
+                while (leftSibling->keys.size() < sumOfKeys / 2) {
+                    leftSibling->keys.emplace_back(rightSibling->keys[idx]);
+                    idx++;
+                }
+
+                // right[idx:]부터는 다 p로 밀어버리기
+                for (int i = idx; i < rightSibling->keys.size(); i++) {
+                    p->keys.emplace_back(rightSibling->keys[i]);
+                }
+                // 부모 노드에서 정리..
                 parent->keys.erase(parent->keys.begin() + rightAnchor);
+                parent->keys.erase(parent->keys.begin() + leftAnchor);
+                parent->children.erase(parent->children.begin() + rightAnchor);
+
+                // next포인터 당기기
+                p->next = rightSibling->next;
+            }
+
+            return true;
+        } else {
+            // 1. 리프에 재귀호출해서 리프 삭제 먼저 시키기
+            bool res;  // 재귀 호출의 응답
+            if (entry < p->keys[0].first) {
+                res = deleteRecursively(entry, p->children[0], p, nullptr, -1,
+                                        p->children[1], 0);
+            } else {
+                for (int i = 0; i < p->keys.size(); i++) {
+                    if (entry >= p->keys[i].first) {
+                        if (i == p->keys.size() - 1)
+                            res = deleteRecursively(
+                                entry, p->children.back(), p,
+                                p->children[p->keys.size() - 1],
+                                p->keys.size() - 1, nullptr, -1);
+                        else
+                            res = deleteRecursively(entry, p->children[i + 1],
+                                                    p, p->children[i], i,
+                                                    p->children[i + 2], i + 1);
+                        break;
+                    }
+                }
+            }
+
+            // 만약 리프로부터 삭제 실패소식이 전파되어 올라오면, 연쇄하여 전파
+            if (!res) return false;
+
+            // 만약 언더플로우가 안나면, 조기 종료
+            if (p->keys.size() >= internalMin) return true;
+
+            // 2. 만약 루트인 경우
+            if (p == root) {
+                // 루트인데 key가 없다? 그럼 끝.
+                if (p->keys.empty()) root = p->children[0];
+                return true;
+            }
+
+            // 3. 왼쪽과 병합 시도..
+            // 4. 오른쪽과 병합 시도..
+            // 5. 둘 다 안된다? 양쪽 병합 후 redistribution..
+            if ((leftSibling &&
+                 p->keys.size() + leftSibling->keys.size() < degree) ||
+                !rightSibling) {
+                // 왼쪽과 병합 시도
+                for (int i = 0; i < p->keys.size(); i++) {
+                    leftSibling->keys.emplace_back(p->keys[i]);
+                }
+                if (leftSibling->keys.size() < degree) {
+                    // redistribution 필요 없음..
+                    // leftAnchor와 p삭제
+                    parent->children.erase(parent->children.begin() +
+                                           leftAnchor);
+                    parent->keys.erase(parent->keys.begin() + leftAnchor);
+                } else {
+                    // redistribution
+                    int mid = leftSibling->keys.size() / 2;
+                    p->keys.resize(leftSibling->keys.size() - mid);
+                    for (int i = 1; i + mid < leftSibling->keys.size(); i++) {
+                        p->keys[i - 1] = leftSibling->keys[mid + i];
+                    }
+                    leftSibling->keys.resize(mid);
+                    parent->keys[leftAnchor].first = leftSibling->keys[0].first;
+                }
+
+            } else if ((rightSibling &&
+                        p->keys.size() + rightSibling->keys.size() < degree) ||
+                       !leftSibling) {
+                // 오른쪽과 병합 시도
+                for (int i = 0; i < rightSibling->keys.size(); i++) {
+                    p->keys.emplace_back(rightSibling->keys[i]);
+                }
+                if (rightSibling->keys.size() < degree) {
+                    // redistribution 필요 없음..
+                    // rightAnchor와 p삭제
+                    parent->children.erase(parent->children.begin() +
+                                           rightAnchor);
+                    parent->keys.erase(parent->keys.begin() + rightAnchor);
+                } else {
+                    // redistribution
+                    int mid = rightSibling->keys.size() / 2;
+                    rightSibling->keys.resize(p->keys.size() - mid);
+                    for (int i = 1; i + mid < p->keys.size(); i++) {
+                        rightSibling->keys[i - 1] = p->keys[mid + i];
+                    }
+                    p->keys.resize(mid);
+                    parent->keys[rightAnchor].first =
+                        rightSibling->keys[0].first;
+                }
             } else {
                 // 양쪽 다 병합
                 int sumOfKeys = leftSibling->keys.size() + p->keys.size() +
@@ -288,54 +531,19 @@ class BPlusTree {
                 parent->keys.erase(parent->keys.begin() + leftAnchor);
                 parent->children.erase(parent->children.begin() + rightAnchor);
             }
-
             return true;
-        } else {
-            // 1. 리프에 재귀호출해서 리프 삭제 먼저 시키기
-            bool res;  // 재귀 호출의 응답
-            if (entry < p->keys[0].first) {
-                res = deleteRecursively(entry, p->children[0], p, nullptr, -1,
-                                        p->children[1], 0);
-            } else {
-                for (int i = 0; i < p->keys.size(); i++) {
-                    if (entry >= p->keys[i].first) {
-                        if (i == p->keys.size() - 1)
-                            res = deleteRecursively(
-                                entry, p->children.back(), p,
-                                p->children[p->keys.size() - 1], p->keys.size(),
-                                nullptr, -1);
-                        else
-                            res = deleteRecursively(entry, p->children[i + 1],
-                                                    p, p->children[i], i,
-                                                    p->children[i + 2], i + 1);
-                        break;
-                    }
-                }
-            }
-
-            // 만약 리프로부터 삭제 실패소식이 전파되어 올라오면, 연쇄하여 전파
-            if (!res) return false;
         }
-
-        return true;
     }
 };
 
 int main(int argc, char* argv[]) {
     std::cout << "Hello Database!\n";
-    std::shared_ptr<BPlusTree> mybpt = std::make_shared<BPlusTree>(4);
+    std::shared_ptr<BPlusTree> mybpt = std::make_shared<BPlusTree>(MAXDEGREE);
 
+    mybpt->initializeWithInteraction();
     mybpt->printTree();
-    mybpt->insert("A102", "Jisoo Kim", 24, "Computer Science");
-    mybpt->insert("B840", "Minho Lee", 21, "Mechanical Engineering");
-    mybpt->insert("C203", "Hyejin Park", 22, "Business Administration");
-    mybpt->insert("D394", "Taeyang Choi", 25, "Electrical Engineering");
-    mybpt->insert("E583", "Ara Yoon", 20, "Psychology");
-    mybpt->insert("F238", "Jihoon Han", 23, "Mathematics");
-    mybpt->insert("G492", "Seoyun Lim", 22, "Architecture");
-    mybpt->insert("H183", "Nayeon Jung", 24, "Biology");
-    mybpt->insert("I823", "Hyunwoo Seo", 26, "Chemical Engineering");
-    mybpt->insert("J094", "Yuna Kang", 21, "Philosophy");
+
+    mybpt->remove("Srinivasan");
     mybpt->printTree();
     return 0;
 }
