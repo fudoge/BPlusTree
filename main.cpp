@@ -35,8 +35,10 @@ class BPlusTree {
     int internalMin;
     int leafMin;
     std::shared_ptr<BPTNode> root;
-    std::shared_ptr<BPTNode> firstNode;
 
+    // 노드 정보 입력 인터렉션.
+    // 리프여부, 키의 수와 각 키들을 입력받고,
+    // 포인터의 수는 자동으로 key+1개로 간주
     std::shared_ptr<BPTNode> makeNodeWithInteraction(int nodeNum) {
         bool isLeaf = false;
         std::string temp;
@@ -67,6 +69,7 @@ class BPlusTree {
         return p;
     }
 
+    // 레코드 생성 인터렉션.
     std::shared_ptr<Record> iniTializeRecord(std::string key) {
         std::string name, age, department;
         std::cout << "\n[Record Initialization for key " << key << "]\n";
@@ -85,13 +88,16 @@ class BPlusTree {
 
    public:
     BPlusTree(int degree) {
-        this->degree = degree;
+        this->degree = degree;                                // maxdegree
         this->leafMin = (degree - 1) / 2 + (degree - 1) % 2;  // ceil(n-1/2)
-        this->internalMin = degree / 2 + degree % 2 -
-                            1;  // 키 수 = 최소포인터수-1 = ceil(n/2)-1
+        this->internalMin =
+            degree / 2 + degree % 2 -
+            1;  // 내부노드의 최소 키 수 = 최소포인터수-1 = ceil(n/2)-1
         this->root = nullptr;
     }
 
+    // BFS기반 출력
+    // 낮은레벨부터, 같은레벨인경우 왼쪽부터 읽도록 하였음
     void printTree() {
         if (this->root.get() == nullptr) {
             std::cout << "Tree is Empty\n";
@@ -129,10 +135,12 @@ class BPlusTree {
         std::cout << "\n";
     }
 
+    // 인터렉션 기반 트리 생성
+    // 유효한 B+트리를 입력받아야 함
     void initializeWithInteraction() {
         std::cout << "\n[Initialize the B+Tree]\n";
-        std::cout << "Number your node starting from root with 1 in full "
-                     "binary-tree order\n";
+        std::cout << "Input node data in full binary-tree order, starting from "
+                     "(root:1)\n";
 
         std::queue<
             std::tuple<int, std::shared_ptr<BPTNode>, std::shared_ptr<BPTNode>>>
@@ -149,6 +157,7 @@ class BPlusTree {
             tie(nodeNum, parent, current) = q.front();
             q.pop();
 
+            // 부모와 연결 설정
             if (parent) parent->children.emplace_back(current);
 
             if (current->isLeaf) {
@@ -159,6 +168,8 @@ class BPlusTree {
                 }
                 continue;
             }
+            // 내부노드면 자식생성 인터렉션
+            // key+1개 의 자식을 만듬
             for (int i = 0; i <= current->keys.size(); i++) {
                 std::shared_ptr<BPTNode> p =
                     makeNodeWithInteraction(++maxNodeNum);
@@ -170,6 +181,7 @@ class BPlusTree {
         root = newRoot;
     }
 
+    // 검색
     std::shared_ptr<Record> search(const std::string query) {
         if (this->root == nullptr) return nullptr;
         std::shared_ptr<Record> res;
@@ -191,17 +203,21 @@ class BPlusTree {
         return nullptr;
     }
 
+    // 삽입
     bool insert(const std::string key, std::string name, int age,
                 std::string department) {
+        // 트리가 비어있다면, 트리를 생성
+        // 처음만들어진 루트는 리프임.
         if (root.get() == nullptr) {
             root = std::make_shared<BPTNode>(true);
             root->keys.emplace_back(
                 key, std::make_shared<Record>(key, name, age, department));
-            firstNode = root;
             return true;
         }
 
         // 삽입
+        // 스택을 타고가면서, 역대 조상들을 저장해둠.
+        // 이를 이용해서 추루 오버플로우 처리를 재귀적으로 돌아오면서 처리가능
         std::shared_ptr<BPTNode> p = root;
         std::stack<std::shared_ptr<BPTNode>> ancestors;
         while (!p->isLeaf) {
@@ -222,20 +238,22 @@ class BPlusTree {
                 inserted = true;
                 break;
             } else if (key == p->keys[i].first)
-                return false;
+                return false;  // 이미 값이 있으면 삽입 실패
         }
         if (!inserted)
             p->keys.emplace_back(
                 key, std::make_shared<Record>(key, name, age, department));
 
-        // 분리 및 전파
+        // 현재 노드가 오버플로우인 동안, 분리 및 부모노드에 전파
         while (p->keys.size() >= degree) {
             std::shared_ptr<BPTNode> newNode =
                 std::make_shared<BPTNode>(p->isLeaf);
-            std::string propagate_key;
+            std::string propagate_key;  // 오버플로우 시, 부모 노드로 올릴 키
             int mid = p->keys.size() / 2;
             propagate_key = p->keys[mid].first;
             if (p->isLeaf) {
+                // 리프면 키가 복사되어 올라가야 함
+                // ->새로 추가된 리프노드를 부모노드에서 분기시켜줄 엔트리가 됨.
                 for (int i = mid; i < p->keys.size(); i++) {
                     newNode->keys.emplace_back(p->keys[i]);
                 }
@@ -244,6 +262,7 @@ class BPlusTree {
                 newNode->next = p->next;
                 p->next = newNode;
             } else {
+                // 내부 노드에서는 복사해서 올리지 않음.
                 for (int i = mid + 1; i < p->keys.size(); i++) {
                     newNode->keys.emplace_back(p->keys[i]);
                 }
@@ -255,6 +274,7 @@ class BPlusTree {
                 p->children.resize(mid + 1);
             }
 
+            // 루트가 오버플로우라면, 부모노드를 생성해서 분기 엔트리만듬
             if (ancestors.empty()) {
                 std::shared_ptr<BPTNode> newRoot =
                     std::make_shared<BPTNode>(false);
@@ -264,6 +284,8 @@ class BPlusTree {
                 root = newRoot;
                 break;
             }
+
+            // 부모노드에 새 노드 연결시켜주기
             std::shared_ptr<BPTNode> parent = ancestors.top();
             ancestors.pop();
             bool inserted = false;
@@ -282,6 +304,7 @@ class BPlusTree {
                 parent->children.emplace_back(newNode);
             }
 
+            // 계층 끌어올리기(이제 상위 노드 오버플로우 처리)
             p = parent;
         }
 
@@ -301,7 +324,7 @@ class BPlusTree {
     // parent는 부모 노드
     // leftSibling은 왼쪽 형제,
     // leftAnchor는 왼쪽 형제와 p의 분기가 되는 부모 노드의 key의 인덱스
-    // rightSibling은 왼쪽 형제,
+    // rightSibling은 오른쪽 형제,
     // rightAnchor는 오른쪽 형제와 p의 분기가 되는 부모 노드의 key의인덱스
     bool deleteRecursively(const std::string entry, std::shared_ptr<BPTNode> p,
                            std::shared_ptr<BPTNode> parent,
@@ -382,36 +405,56 @@ class BPlusTree {
                 }
             } else {
                 // 양쪽 다 병합
+                std::vector<std::pair<std::string, std::shared_ptr<Record>>>
+                    fullKeys(leftSibling->keys.begin(),
+                             leftSibling->keys.end());
+                fullKeys.insert(fullKeys.end(), p->keys.begin(), p->keys.end());
+                fullKeys.insert(fullKeys.end(), rightSibling->keys.begin(),
+                                rightSibling->keys.end());
                 int sumOfKeys = leftSibling->keys.size() + p->keys.size() +
                                 rightSibling->keys.size();
 
-                // p가 left에게 줌..
-                int idx = 0;
-                while (leftSibling->keys.size() < sumOfKeys / 2) {
-                    leftSibling->keys.emplace_back(p->keys[idx]);
-                    idx++;
-                }
-                // p에서 left에 준만큼 자르기
-                p->keys.erase(p->keys.begin(), p->keys.begin() + idx);
+                if (sumOfKeys <= (degree - 1) * 2) {
+                    // 2개로 재분배
+                    int mid = sumOfKeys / 2;
+                    leftSibling->keys.resize(mid);
+                    for (int i = 0; i < mid; i++) {
+                        leftSibling->keys[i] = fullKeys[i];
+                    }
 
-                // right가 p에 줌..
-                idx = 0;
-                while (leftSibling->keys.size() < sumOfKeys / 2) {
-                    leftSibling->keys.emplace_back(rightSibling->keys[idx]);
-                    idx++;
-                }
+                    for (int i = 0; i + mid < sumOfKeys; i++) {
+                        p->keys[i] = fullKeys[i + mid];
+                    }
+                    // Anchor 수정 및 삭제, 자식포인터 하나 삭제
+                    parent->keys[leftAnchor].first = p->keys[0].first;
+                    parent->keys.erase(parent->keys.begin() + rightAnchor);
+                    parent->children.erase(parent->children.begin() +
+                                           rightAnchor + 1);
+                    // 오른쪽형제의 포인터 끌어오기
+                    p->next = rightSibling->next;
+                } else {
+                    // 3개로 재분배
+                    int seg = sumOfKeys / 3;
+                    int remainder = sumOfKeys % 3;
 
-                // right[idx:]부터는 다 p로 밀어버리기
-                for (int i = idx; i < rightSibling->keys.size(); i++) {
-                    p->keys.emplace_back(rightSibling->keys[i]);
-                }
-                // 부모 노드에서 정리..
-                parent->keys.erase(parent->keys.begin() + rightAnchor);
-                parent->keys.erase(parent->keys.begin() + leftAnchor);
-                parent->children.erase(parent->children.begin() + rightAnchor);
+                    int lsz = seg + (--remainder >= 0 ? 1 : 0);
+                    for (int i = 0; i < lsz; i++) {
+                        leftSibling->keys[i] = fullKeys[i];
+                    }
 
-                // next포인터 당기기
-                p->next = rightSibling->next;
+                    int psz = seg + (--remainder >= 0 ? 1 : 0);
+                    for (int i = 0; i < psz; i++) {
+                        p->keys[i] = fullKeys[lsz + i];
+                    }
+
+                    for (int i = 0; i + seg; i++) {
+                        rightSibling->keys[i] = fullKeys[lsz + psz + i];
+                    }
+                    // Anchor 수정
+                    parent->keys[leftAnchor].first = p->keys[0].first;
+                    parent->keys[rightAnchor].first =
+                        rightSibling->keys[0].first;
+                }
             }
 
             return true;
@@ -493,7 +536,6 @@ class BPlusTree {
             } else if ((rightSibling &&
                         rightSibling->keys.size() + p->keys.size() < degree) ||
                        !leftSibling) {
-                // 우선, 키들 직렬화
                 // 우선, 키 및 자식 포인터들 직렬화
                 std::vector<std::pair<std::string, std::shared_ptr<Record>>>
                     fullKeys(p->keys.begin(), p->keys.end());
