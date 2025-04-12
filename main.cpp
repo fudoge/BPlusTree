@@ -294,6 +294,7 @@ class BPlusTree {
                                         nullptr, -1)) {
             std::cout << "Entry " << query << " not found!\n";
         }
+        while (root && root->children.size() == 1) root = root->children[0];
     }
 
     // p는 현재 노드
@@ -341,17 +342,17 @@ class BPlusTree {
                     // leftAnchor와 p삭제
                     leftSibling->next = p->next;
                     parent->children.erase(parent->children.begin() +
-                                           leftAnchor);
+                                           leftAnchor + 1);
                     parent->keys.erase(parent->keys.begin() + leftAnchor);
                 } else {
                     // redistribution
                     int mid = leftSibling->keys.size() / 2;
                     p->keys.resize(leftSibling->keys.size() - mid);
-                    for (int i = 1; i + mid < leftSibling->keys.size(); i++) {
-                        p->keys[i - 1] = leftSibling->keys[mid + i];
+                    for (int i = 0; i + mid < leftSibling->keys.size(); i++) {
+                        p->keys[i] = leftSibling->keys[mid + i];
                     }
                     leftSibling->keys.resize(mid);
-                    parent->keys[leftAnchor].first = leftSibling->keys[0].first;
+                    parent->keys[leftAnchor].first = p->keys[0].first;
                 }
 
             } else if ((rightSibling &&
@@ -366,14 +367,14 @@ class BPlusTree {
                     // rightAnchor와 p삭제
                     p->next = rightSibling->next;
                     parent->children.erase(parent->children.begin() +
-                                           rightAnchor);
+                                           rightAnchor + 1);
                     parent->keys.erase(parent->keys.begin() + rightAnchor);
                 } else {
                     // redistribution
                     int mid = rightSibling->keys.size() / 2;
                     rightSibling->keys.resize(p->keys.size() - mid);
-                    for (int i = 1; i + mid < p->keys.size(); i++) {
-                        rightSibling->keys[i - 1] = p->keys[mid + i];
+                    for (int i = 0; i + mid < p->keys.size(); i++) {
+                        rightSibling->keys[i] = p->keys[mid + i];
                     }
                     p->keys.resize(mid);
                     parent->keys[rightAnchor].first =
@@ -424,10 +425,9 @@ class BPlusTree {
                 for (int i = 0; i < p->keys.size(); i++) {
                     if (entry >= p->keys[i].first) {
                         if (i == p->keys.size() - 1)
-                            res = deleteRecursively(
-                                entry, p->children.back(), p,
-                                p->children[p->keys.size() - 1],
-                                p->keys.size() - 1, nullptr, -1);
+                            res = deleteRecursively(entry, p->children[i + 1],
+                                                    p, p->children[i], i,
+                                                    nullptr, -1);
                         else
                             res = deleteRecursively(entry, p->children[i + 1],
                                                     p, p->children[i], i,
@@ -444,9 +444,10 @@ class BPlusTree {
             if (p->keys.size() >= internalMin) return true;
 
             // 2. 만약 루트인 경우
-            if (p == root) {
-                // 루트인데 key가 없다? 그럼 끝.
-                if (p->keys.empty()) root = p->children[0];
+            if (!parent) {
+                // 루트인데 포인터가 1개밖에 없다? 루트를 자식에게 물려주고 종료
+                if (p->keys.empty() || p->children.size() == 1)
+                    root = p->children[0];
                 return true;
             }
 
@@ -454,82 +455,153 @@ class BPlusTree {
             // 4. 오른쪽과 병합 시도..
             // 5. 둘 다 안된다? 양쪽 병합 후 redistribution..
             if ((leftSibling &&
-                 p->keys.size() + leftSibling->keys.size() < degree) ||
+                 leftSibling->keys.size() + p->keys.size() < degree) ||
                 !rightSibling) {
-                // 왼쪽과 병합 시도
-                for (int i = 0; i < p->keys.size(); i++) {
-                    leftSibling->keys.emplace_back(p->keys[i]);
-                }
+                // 우선, 키 및 자식 포인터들 직렬화
+                std::vector<std::pair<std::string, std::shared_ptr<Record>>>
+                    fullKeys(leftSibling->keys.begin(),
+                             leftSibling->keys.end());
+                fullKeys.emplace_back(parent->keys[leftAnchor]);
+                fullKeys.insert(fullKeys.end(), p->keys.begin(), p->keys.end());
+
+                std::vector<std::shared_ptr<BPTNode>> fullPtrs(
+                    leftSibling->children.begin(), leftSibling->children.end());
+                fullPtrs.insert(fullPtrs.end(), p->children.begin(),
+                                p->children.end());
+
+                // 좌+앵커+현재가 degree 미만이라면, 병합으로
+                leftSibling->keys = fullKeys;
+                leftSibling->children = fullPtrs;
                 if (leftSibling->keys.size() < degree) {
-                    // redistribution 필요 없음..
-                    // leftAnchor와 p삭제
                     parent->children.erase(parent->children.begin() +
-                                           leftAnchor);
-                    parent->keys.erase(parent->keys.begin() + leftAnchor);
+                                           leftAnchor + 1);
                 } else {
-                    // redistribution
-                    int mid = leftSibling->keys.size() / 2;
-                    p->keys.resize(leftSibling->keys.size() - mid);
-                    for (int i = 1; i + mid < leftSibling->keys.size(); i++) {
-                        p->keys[i - 1] = leftSibling->keys[mid + i];
-                    }
+                    // 아니면, 재분배(redistribution)
+                    int mid = fullKeys.size() / 2;
                     leftSibling->keys.resize(mid);
-                    parent->keys[leftAnchor].first = leftSibling->keys[0].first;
+                    leftSibling->children.resize(mid + 1);
+                    parent->keys[leftAnchor] = fullKeys[mid];
+                    p->keys.resize(fullKeys.size() - mid - 1);
+                    p->children.resize(0);
+                    for (int i = 2; i + mid <= fullKeys.size(); i++) {
+                        p->keys[i - 2] = fullKeys[i + mid - 1];
+                        p->children.emplace_back(fullPtrs[i + mid - 1]);
+                    }
+                    p->children.emplace_back(fullPtrs.back());
                 }
 
             } else if ((rightSibling &&
-                        p->keys.size() + rightSibling->keys.size() < degree) ||
+                        rightSibling->keys.size() + p->keys.size() < degree) ||
                        !leftSibling) {
-                // 오른쪽과 병합 시도
-                for (int i = 0; i < rightSibling->keys.size(); i++) {
-                    p->keys.emplace_back(rightSibling->keys[i]);
-                }
-                if (rightSibling->keys.size() < degree) {
-                    // redistribution 필요 없음..
-                    // rightAnchor와 p삭제
+                // 우선, 키들 직렬화
+                // 우선, 키 및 자식 포인터들 직렬화
+                std::vector<std::pair<std::string, std::shared_ptr<Record>>>
+                    fullKeys(p->keys.begin(), p->keys.end());
+                fullKeys.emplace_back(parent->keys[rightAnchor]);
+                fullKeys.insert(fullKeys.end(), p->keys.begin(), p->keys.end());
+
+                std::vector<std::shared_ptr<BPTNode>> fullPtrs(
+                    p->children.begin(), p->children.end());
+                fullPtrs.insert(fullPtrs.end(), rightSibling->children.begin(),
+                                rightSibling->children.end());
+
+                // 현재+앵커+우형제의 key가 degree 미만이라면, 병합으로
+                p->keys = fullKeys;
+                p->children = fullPtrs;
+                if (p->keys.size() < degree) {
                     parent->children.erase(parent->children.begin() +
-                                           rightAnchor);
-                    parent->keys.erase(parent->keys.begin() + rightAnchor);
+                                           rightAnchor + 1);
                 } else {
-                    // redistribution
-                    int mid = rightSibling->keys.size() / 2;
-                    rightSibling->keys.resize(p->keys.size() - mid);
-                    for (int i = 1; i + mid < p->keys.size(); i++) {
-                        rightSibling->keys[i - 1] = p->keys[mid + i];
-                    }
+                    // 아니면, 재분배(redistribution)
+                    int mid = fullKeys.size() / 2;
                     p->keys.resize(mid);
-                    parent->keys[rightAnchor].first =
-                        rightSibling->keys[0].first;
+                    p->children.resize(mid + 1);
+                    parent->keys[rightAnchor] = fullKeys[mid];
+                    rightSibling->keys.resize(fullKeys.size() - mid - 1);
+                    rightSibling->children.resize(0);
+                    for (int i = 2; i + mid <= fullKeys.size(); i++) {
+                        rightSibling->keys[i - 2] = fullKeys[i + mid - 1];
+                        rightSibling->children.emplace_back(
+                            fullPtrs[i + mid - 1]);
+                    }
+                    rightSibling->children.emplace_back(fullPtrs.back());
                 }
+
             } else {
-                // 양쪽 다 병합
-                int sumOfKeys = leftSibling->keys.size() + p->keys.size() +
-                                rightSibling->keys.size();
+                // 양쪽과 재분배 ㄱㄱ
+                // 좌형제 + 좌앵커 + 현재 + 우앵커 + 우형제의 정보들을 모두
+                // 일렬로 세우기
+                std::vector<std::pair<std::string, std::shared_ptr<Record>>>
+                    fullKeys(leftSibling->keys.begin(),
+                             leftSibling->keys.end());
+                fullKeys.emplace_back(parent->keys[leftAnchor]);
+                fullKeys.insert(fullKeys.end(), p->keys.begin(), p->keys.end());
+                fullKeys.emplace_back(parent->keys[rightAnchor]);
+                fullKeys.insert(fullKeys.end(), rightSibling->keys.begin(),
+                                rightSibling->keys.end());
+                std::vector<std::shared_ptr<BPTNode>> fullPtrs(
+                    leftSibling->children.begin(), leftSibling->children.end());
+                fullPtrs.insert(fullPtrs.end(), p->children.begin(),
+                                p->children.end());
+                fullPtrs.insert(fullPtrs.end(), rightSibling->children.begin(),
+                                rightSibling->children.end());
 
-                // p가 left에게 줌..
-                int idx = 0;
-                while (leftSibling->keys.size() < sumOfKeys / 2) {
-                    leftSibling->keys.emplace_back(p->keys[idx]);
-                    idx++;
-                }
-                // p에서 left에 준만큼 자르기
-                p->keys.erase(p->keys.begin(), p->keys.begin() + idx);
+                // 3개 병합이 1개가 되는 것은, 불가능
+                // 이웃들은 이미 절반이상 있기에,
+                // 3개병합이 1개될순없음
+                // 3개에서 2개로 될 수 있다면, 2개로 만들기
+                if (fullKeys.size() <= 2 * (degree - 1) + 1) {
+                    int mid = fullKeys.size() / 2;
+                    leftSibling->keys = fullKeys;
+                    leftSibling->keys.resize(mid);
+                    parent->keys[leftAnchor] = fullKeys[mid + 1];
+                    p->keys.resize(fullKeys.size() - mid - 1);
+                    p->children.resize(0);
+                    for (int i = 2; i + mid < fullKeys.size(); i++) {
+                        p->keys[i - 2] = fullKeys[i + mid];
+                        p->children.emplace_back(fullPtrs[i + mid - 1]);
+                    }
+                    p->children.emplace_back(fullPtrs.back());
 
-                // right가 p에 줌..
-                idx = 0;
-                while (leftSibling->keys.size() < sumOfKeys / 2) {
-                    leftSibling->keys.emplace_back(rightSibling->keys[idx]);
-                    idx++;
-                }
+                    parent->keys.erase(parent->keys.begin() + rightAnchor);
+                    parent->children.erase(parent->children.begin() +
+                                           rightAnchor + 1);
+                } else {
+                    // 아니면 재분배
+                    int seg = (fullKeys.size() - 2) / 3;
+                    int remainder = ((fullKeys.size() - 2) % 3) / 2;
+                    int j = 0;
 
-                // right[idx:]부터는 다 p로 밀어버리기
-                for (int i = idx; i < rightSibling->keys.size(); i++) {
-                    p->keys.emplace_back(rightSibling->keys[i]);
+                    int lsz = seg + (--remainder >= 0 ? 1 : 0);
+                    leftSibling->keys.resize(lsz);
+                    leftSibling->children.resize(0);
+                    for (int i = 0; i < lsz; i++) {
+                        leftSibling->keys[i] = fullKeys[j];
+                        leftSibling->children.emplace_back(fullPtrs[j]);
+                        j++;
+                    }
+                    leftSibling->children.emplace_back(fullPtrs[j + 1]);
+
+                    parent->keys[leftAnchor] = fullKeys[j++];
+                    int psz = seg + (--remainder >= 0 ? 1 : 0);
+                    p->keys.resize(psz);
+                    p->children.resize(0);
+                    for (int i = 0; i < psz; i++) {
+                        p->keys[lsz + 1 + i] = fullKeys[j];
+                        p->children.emplace_back(fullPtrs[j + 1]);
+                        j++;
+                    }
+                    p->children.emplace_back(fullPtrs[j + 2]);
+
+                    parent->keys[rightAnchor] = fullKeys[j++];
+                    rightSibling->keys.resize(seg);
+                    rightSibling->children.resize(0);
+                    for (int i = 0; i < seg; i++) {
+                        rightSibling->keys[lsz + psz + i] = fullKeys[j];
+                        rightSibling->children.emplace_back(fullPtrs[j + 2]);
+                        j++;
+                    }
                 }
-                // 부모 노드에서 정리..
-                parent->keys.erase(parent->keys.begin() + rightAnchor);
-                parent->keys.erase(parent->keys.begin() + leftAnchor);
-                parent->children.erase(parent->children.begin() + rightAnchor);
             }
             return true;
         }
@@ -537,13 +609,16 @@ class BPlusTree {
 };
 
 int main(int argc, char* argv[]) {
-    std::cout << "Hello Database!\n";
     std::shared_ptr<BPlusTree> mybpt = std::make_shared<BPlusTree>(MAXDEGREE);
 
     mybpt->initializeWithInteraction();
     mybpt->printTree();
 
+    // Deletion from Figure 14.14
     mybpt->remove("Srinivasan");
+    mybpt->remove("Singh");
+    mybpt->remove("Wu");
+    mybpt->remove("Gold");
     mybpt->printTree();
     return 0;
 }
