@@ -1,5 +1,6 @@
 #include <cctype>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <queue>
@@ -53,56 +54,67 @@ class BPlusTree {
     // 노드 정보 입력 인터렉션.
     // 리프여부, 키의 수와 각 키들을 입력받고,
     // 포인터의 수는 자동으로 key+1개로 간주
-    std::shared_ptr<BPTNode> makeNodeWithInteraction(int nodeNum) {
+    std::shared_ptr<BPTNode> makeNodeWithInteraction(int nodeNum,
+                                                     std::istream& in,
+                                                     bool isInteractive) {
         bool isLeaf = false;
         std::string temp;
         int numberOfKeys;
         int numberOfChildren;
-        std::cout << "Node " << nodeNum << ":\n";
-        std::cout << "Is it a leaf node? If leaf, input 'y' or 'Y', otherwise, "
-                     "type any.\n";
-        std::getline(std::cin, temp);
+        if (isInteractive) {
+            std::cout << "Node " << nodeNum << ":\n";
+            std::cout
+                << "Is it a leaf node? If leaf, input 'y' or 'Y', otherwise, "
+                   "type any.\n";
+        }
+        std::getline(in, temp);
         isLeaf = temp == "Y" || temp == "y";
 
-        std::cout << "How many keys it has?\n";
-        std::getline(std::cin, temp);
+        if (isInteractive) {
+            std::cout << "How many keys it has?\n";
+        }
+        std::getline(in, temp);
         numberOfKeys = mystoi(temp);
         if (numberOfKeys < 0 || numberOfKeys >= degree) {
-            std::cout << "Invalid Input.\n Trees will be rollbacked.\n";
+            std::cout << "Invalid Input.\n";
             return NULL;
         }
 
         std::shared_ptr<BPTNode> p = std::make_shared<BPTNode>(isLeaf);
-        std::cout << "Please Input the keys in 0-indexed.\n";
+        if (isInteractive) std::cout << "Please Input the keys in 0-indexed.\n";
         for (int i = 0; i < numberOfKeys; i++) {
-            std::cout << "Key[" << i << "]:\n";
+            if (isInteractive) std::cout << "Key[" << i << "]:\n";
             std::string temp;
-            std::getline(std::cin, temp);
+            std::getline(in, temp);
             p->keys.emplace_back(temp, nullptr);
         }
         return p;
     }
 
     // 레코드 생성 인터렉션.
-    std::shared_ptr<Record> iniTializeRecord(std::string key) {
+    std::shared_ptr<Record> iniTializeRecord(std::string key, std::istream& in,
+                                             bool isInteractive) {
         std::string name, age, department;
-        std::cout << "\n[Record Initialization for key " << key << "]\n";
-        std::cout << "Input the Informations line by line:\n";
+        if (isInteractive) {
+            std::cout << "\n[Record Initialization for key " << key << "]\n";
+            std::cout << "Input the Informations line by line:\n";
 
-        std::cout << "Name: ";
-        std::getline(std::cin, name);
+            std::cout << "Name: ";
+        }
+        std::getline(in, name);
 
-        std::cout << "Age: ";
-        std::getline(std::cin, age);
+        if (isInteractive) std::cout << "Age: ";
+        std::getline(in, age);
         int a = mystoi(age);
         while (a < 0) {
-            std::cout << "Age must be a non negative integer!\n Age: ";
-            std::getline(std::cin, age);
+            if (isInteractive)
+                std::cout << "Age must be a non negative integer!\n Age: ";
+            std::getline(in, age);
             a = mystoi(age);
         }
 
-        std::cout << "Department: ";
-        std::getline(std::cin, department);
+        if (isInteractive) std::cout << "Department: ";
+        std::getline(in, department);
         return std::make_shared<Record>(key, name, stoi(age), department);
     }
 
@@ -157,15 +169,18 @@ class BPlusTree {
 
     // 인터렉션 기반 트리 생성
     // 유효한 B+트리를 입력받아야 함
-    void initializeWithInteraction() {
-        std::cout << "\n[Initialize the B+Tree]\n";
-        std::cout << "Input node data in full binary-tree order, starting from "
-                     "(root:1)\n";
-
+    void initializeWithInteraction(std::istream& in, bool isInteractive) {
+        if (isInteractive) {
+            std::cout << "\n[Initialize the B+Tree]\n";
+            std::cout
+                << "Input node data in full binary-tree order, starting from "
+                   "(root:1)\n";
+        }
         std::queue<
             std::tuple<int, std::shared_ptr<BPTNode>, std::shared_ptr<BPTNode>>>
             q;
-        std::shared_ptr<BPTNode> newRoot = makeNodeWithInteraction(1);
+        std::shared_ptr<BPTNode> newRoot =
+            makeNodeWithInteraction(1, in, isInteractive);
 
         if (newRoot == nullptr) return;
         q.emplace(1, nullptr, newRoot);
@@ -183,8 +198,8 @@ class BPlusTree {
             if (current->isLeaf) {
                 current->next = !q.empty() ? std::get<2>(q.front()) : nullptr;
                 for (int i = 0; i < current->keys.size(); i++) {
-                    current->keys[i].second =
-                        iniTializeRecord(current->keys[i].first);
+                    current->keys[i].second = iniTializeRecord(
+                        current->keys[i].first, in, isInteractive);
                 }
                 continue;
             }
@@ -192,7 +207,7 @@ class BPlusTree {
             // key+1개 의 자식을 만듬
             for (int i = 0; i <= current->keys.size(); i++) {
                 std::shared_ptr<BPTNode> p =
-                    makeNodeWithInteraction(++maxNodeNum);
+                    makeNodeWithInteraction(++maxNodeNum, in, isInteractive);
                 if (p == nullptr) return;
                 q.emplace(maxNodeNum, current, p);
             }
@@ -336,6 +351,7 @@ class BPlusTree {
         if (!root || !deleteRecursively(query, root, nullptr, nullptr, -1,
                                         nullptr, -1)) {
             std::cout << "Entry " << query << " not found!\n";
+            return;
         }
         // 만일 루트가 포인터가 1개밖에 없다면, 루트 물려주고 끝
         while (root && root->children.size() == 1) root = root->children[0];
@@ -348,7 +364,7 @@ class BPlusTree {
     // leftAnchor는 왼쪽 형제와 p의 분기가 되는 부모 노드의 key의 인덱스
     // rightSibling은 오른쪽 형제,
     // rightAnchor는 오른쪽 형제와 p의 분기가 되는 부모 노드의 key의인덱스
-    bool deleteRecursively(const std::string entry, std::shared_ptr<BPTNode> p,
+    bool deleteRecursively(const std::string& entry, std::shared_ptr<BPTNode> p,
                            std::shared_ptr<BPTNode> parent,
                            std::shared_ptr<BPTNode> leftSibling, int leftAnchor,
                            std::shared_ptr<BPTNode> rightSibling,
@@ -482,24 +498,25 @@ class BPlusTree {
             return true;
         } else {
             // 1. 리프에 재귀호출해서 리프 삭제 먼저 시키기
-            bool res;  // 재귀 호출의 응답
-            if (entry < p->keys[0].first) {
-                res = deleteRecursively(entry, p->children[0], p, nullptr, -1,
-                                        p->children[1], 0);
-            } else {
-                for (int i = 0; i < p->keys.size(); i++) {
-                    if (entry >= p->keys[i].first) {
-                        if (i == p->keys.size() - 1)
-                            res = deleteRecursively(entry, p->children[i + 1],
-                                                    p, p->children[i], i,
-                                                    nullptr, -1);
-                        else
-                            res = deleteRecursively(entry, p->children[i + 1],
-                                                    p, p->children[i], i,
-                                                    p->children[i + 2], i + 1);
-                        break;
-                    }
+            bool res = false;  // 재귀 호출의 응답
+            bool recur = false;
+            for (int i = 0; i < p->keys.size(); i++) {
+                if (entry < p->keys[i].first) {
+                    if (i == 0)
+                        res =
+                            deleteRecursively(entry, p->children[i], p, nullptr,
+                                              -1, p->children[i + 1], i);
+                    else
+                        res = deleteRecursively(entry, p->children[i], p,
+                                                p->children[i - 1], i - 1,
+                                                p->children[i + 1], i);
+                    recur = true;
                 }
+            }
+            if (!recur && entry >= p->keys.back().first) {
+                res = deleteRecursively(entry, p->children.back(), p,
+                                        p->children[p->keys.size() - 1],
+                                        p->keys.size() - 1, nullptr, -1);
             }
 
             // 만약 리프로부터 삭제 실패소식이 전파되어 올라오면, 연쇄하여 전파
@@ -674,10 +691,22 @@ class BPlusTree {
 
 std::shared_ptr<BPlusTree> init(int argc, char* argv[]) {
     // args개수가 충족되지 않을 시
-    if (argc != 3) {
-        std::cout << "Usage: " << argv[0] << " [1 or 2] [maxdegree]\n";
+    std::istream* in = &std::cin;
+    std::unique_ptr<std::ifstream> file_ptr;
+    bool isInteractive = true;
+    if (argc == 4 && mystoi(argv[1]) == 2) {
+        file_ptr = std::make_unique<std::ifstream>(argv[3]);
+        if (!file_ptr->is_open()) {
+            std::cerr << "File cannot be opened\n.";
+            exit(1);
+        }
+        in = file_ptr.get();
+        isInteractive = false;
+    } else if (argc != 3) {
+        std::cout << "Usage: " << argv[0] << " [0 ~ 2] [maxdegree] [file]\n";
+        std::cout << "[0] for Starting from Empty Tree\n";
         std::cout << "[1] for Initializing Tree with Interaction\n";
-        std::cout << "[2] for Starting from Empty Tree\n";
+        std::cout << "[2] for Importing from files\n";
         exit(1);
     }
 
@@ -687,10 +716,11 @@ std::shared_ptr<BPlusTree> init(int argc, char* argv[]) {
 
     // mode 유효성검사
     mode = mystoi(m);
-    if (mode < 1 || mode > 2) {
-        std::cout << "Usage: " << argv[0] << " [1 or 2] [maxdegree]\n";
+    if (mode < 0 || mode > 2) {
+        std::cout << "Usage: " << argv[0] << " [0 ~ 2] [maxdegree] [file]\n";
+        std::cout << "[0] for Starting from Empty Tree\n";
         std::cout << "[1] for Initializing Tree with Interaction\n";
-        std::cout << "[2] for Starting from Empty Tree\n";
+        std::cout << "[2] for Importing from files\n";
         exit(1);
     }
 
@@ -702,8 +732,8 @@ std::shared_ptr<BPlusTree> init(int argc, char* argv[]) {
     }
 
     std::shared_ptr<BPlusTree> res = std::make_shared<BPlusTree>(degree);
-    if (mode == 1) {
-        res->initializeWithInteraction();
+    if (mode > 0) {
+        res->initializeWithInteraction(*in, isInteractive);
     }
     return res;
 }
@@ -728,8 +758,11 @@ int main(int argc, char* argv[]) {
             exit(0);
         }
 
-        if (parsed[0] == "FIND" && parsed.size() == 2) {
-            auto res = mybpt->search(parsed[1]);
+        if (parsed[0] == "FIND") {
+            std::cout << "Input the Search Key:";
+            std::string searchkey;
+            std::getline(std::cin, searchkey);
+            auto res = mybpt->search(searchkey);
             std::cout << "\n";
             if (!res) {
                 std::cout << "No Record Found: " << parsed[1] << ".\n";
@@ -764,8 +797,11 @@ int main(int argc, char* argv[]) {
 
             std::cout << (res ? "Successfully Inserted!\n\n"
                               : "Insertion Failed!\n\n");
-        } else if (parsed[0] == "DELETE" && parsed.size() == 2) {
-            mybpt->remove(parsed[1]);
+        } else if (parsed[0] == "DELETE") {
+            std::cout << "Input the search key to delete: ";
+            std::string searchkey;
+            std::getline(std::cin, searchkey);
+            mybpt->remove(searchkey);
         } else if (parsed[0] == "PRINT") {
             mybpt->printTree();
         } else if (parsed[0] == "EXIT" || parsed[0] == "QUIT") {
@@ -774,11 +810,9 @@ int main(int argc, char* argv[]) {
         } else {
             std::cout << "\n[Commands]\n";
             std::cout << "HELP: Show this Page\n";
-            std::cout << "FIND <Search Key>: Find Record with Search Key\n";
-            std::cout << "INSERT <Search Key> <Name> <Age> <Department>: "
-                         "Insert New Record \n";
-            std::cout << "DELETE <Search Key>: Delete Record such that having "
-                         "<Search Key>\n";
+            std::cout << "FIND: Find Record with Search Key\n";
+            std::cout << "INSERT: Insert New Record\n";
+            std::cout << "DELETE: Delete Record such that having\n";
             std::cout << "PRINT: Print This Tree in Level order(left to right "
                          "in the same level)\n";
             std::cout << "EXIT or QUIT: Exit the Program.\n";
