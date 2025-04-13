@@ -1,0 +1,77 @@
+n
+1
+Mozart
+n
+3
+Califieri
+Einstein
+Gold
+n
+1
+Srinivasan
+y
+2
+Adams
+Brandt
+y
+2
+Califieri
+Crick
+y
+2
+Einstein
+El Said
+y
+3
+Gold
+Katz
+Kim
+y
+2
+Mozart
+Singh
+y
+2
+Srinivasan
+Wu
+Adams
+27
+Electrical Engineering
+Brandt
+25
+Computer Science
+Califieri
+29
+History
+Crick
+26
+Biology
+Einstein
+28
+Physics
+El Said
+25
+History
+Gold
+29
+Physics
+Katz
+26
+Computer Science
+Kim
+28
+Electrical Engineering
+Mozart
+27
+Music
+Singh
+25
+Finance
+Srinivasan
+28
+Computer Science
+Wu
+26
+Finance
+
+

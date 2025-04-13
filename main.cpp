@@ -1,12 +1,26 @@
 #include <cctype>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <queue>
+#include <sstream>
 #include <stack>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
-#define MAXDEGREE 4
+// 모드, 나이 등을 위한 람다함수.
+// 양의 정수인 경우만 유요한 값들이므로,
+// 각종 예외 및 에러에서도 -1변환.
+auto mystoi = [](const std::string& str) -> int {
+    try {
+        return stoi(str);
+    } catch (std::invalid_argument&) {
+        return -1;
+    } catch (std::out_of_range&) {
+        return -1;
+    }
+};
 
 class Record {
    public:
@@ -52,7 +66,7 @@ class BPlusTree {
 
         std::cout << "How many keys it has?\n";
         std::getline(std::cin, temp);
-        numberOfKeys = stoi(temp);
+        numberOfKeys = mystoi(temp);
         if (numberOfKeys < 0 || numberOfKeys >= degree) {
             std::cout << "Invalid Input.\n Trees will be rollbacked.\n";
             return NULL;
@@ -80,6 +94,12 @@ class BPlusTree {
 
         std::cout << "Age: ";
         std::getline(std::cin, age);
+        int a = mystoi(age);
+        while (a < 0) {
+            std::cout << "Age must be a non negative integer!\n Age: ";
+            std::getline(std::cin, age);
+            a = mystoi(age);
+        }
 
         std::cout << "Department: ";
         std::getline(std::cin, department);
@@ -217,7 +237,7 @@ class BPlusTree {
 
         // 삽입
         // 스택을 타고가면서, 역대 조상들을 저장해둠.
-        // 이를 이용해서 추루 오버플로우 처리를 재귀적으로 돌아오면서 처리가능
+        // 이를 이용해서 추후 오버플로우 처리를 돌아오면서 처리가능
         std::shared_ptr<BPTNode> p = root;
         std::stack<std::shared_ptr<BPTNode>> ancestors;
         while (!p->isLeaf) {
@@ -317,7 +337,9 @@ class BPlusTree {
                                         nullptr, -1)) {
             std::cout << "Entry " << query << " not found!\n";
         }
+        // 만일 루트가 포인터가 1개밖에 없다면, 루트 물려주고 끝
         while (root && root->children.size() == 1) root = root->children[0];
+        std::cout << query << " Deleted Successfully!\n\n";
     }
 
     // p는 현재 노드
@@ -650,17 +672,117 @@ class BPlusTree {
     }
 };
 
+std::shared_ptr<BPlusTree> init(int argc, char* argv[]) {
+    // args개수가 충족되지 않을 시
+    if (argc != 3) {
+        std::cout << "Usage: " << argv[0] << " [1 or 2] [maxdegree]\n";
+        std::cout << "[1] for Initializing Tree with Interaction\n";
+        std::cout << "[2] for Starting from Empty Tree\n";
+        exit(1);
+    }
+
+    std::string m = argv[1];
+    std::string d = argv[2];
+    int mode, degree;
+
+    // mode 유효성검사
+    mode = mystoi(m);
+    if (mode < 1 || mode > 2) {
+        std::cout << "Usage: " << argv[0] << " [1 or 2] [maxdegree]\n";
+        std::cout << "[1] for Initializing Tree with Interaction\n";
+        std::cout << "[2] for Starting from Empty Tree\n";
+        exit(1);
+    }
+
+    // degree 유효성검사
+    degree = mystoi(d);
+    if (degree < 1) {
+        std::cout << argv[0] << ": Max degree must be >= 2";
+        exit(1);
+    }
+
+    std::shared_ptr<BPlusTree> res = std::make_shared<BPlusTree>(degree);
+    if (mode == 1) {
+        res->initializeWithInteraction();
+    }
+    return res;
+}
+
 int main(int argc, char* argv[]) {
-    std::shared_ptr<BPlusTree> mybpt = std::make_shared<BPlusTree>(MAXDEGREE);
+    std::shared_ptr<BPlusTree> mybpt = init(argc, argv);
+    std::cout << "Tree 생성 완료!";
 
-    mybpt->initializeWithInteraction();
-    mybpt->printTree();
+    while (true) {
+        std::cout << "명령어를 입력하세요(help: HELP)\n";
+        std::cout << "bplustree> ";
+        std::string cmd;
+        std::getline(std::cin, cmd);
+        std::stringstream ss(cmd);
+        std::string temp;
+        std::vector<std::string> parsed;
 
-    // Deletion from Figure 14.14
-    mybpt->remove("Srinivasan");
-    mybpt->remove("Singh");
-    mybpt->remove("Wu");
-    mybpt->remove("Gold");
-    mybpt->printTree();
+        while ((ss >> temp)) {
+            parsed.emplace_back(temp);
+        }
+        if (parsed.empty()) {
+            exit(0);
+        }
+
+        if (parsed[0] == "FIND" && parsed.size() == 2) {
+            auto res = mybpt->search(parsed[1]);
+            std::cout << "\n";
+            if (!res) {
+                std::cout << "No Record Found: " << parsed[1] << ".\n";
+            } else {
+                std::cout << "[Record - Search Key: " << parsed[1] << "]\n";
+                std::cout << "Id: " << res->id << "\n";
+                std::cout << "Name: " << res->name << "\n";
+                std::cout << "Age: " << res->age << "\n";
+                std::cout << "Department: " << res->department << "\n";
+            }
+            std::cout << "\n";
+        } else if (parsed[0] == "INSERT") {
+            std::string key, name, department;
+            std::string age;
+            int a;
+            std::cout << "Input data:\n";
+            std::cout << "Search Key(Id):";
+            std::getline(std::cin, key);
+            std::cout << "Name:";
+            std::getline(std::cin, name);
+            std::cout << "Age:";
+            std::getline(std::cin, age);
+            a = mystoi(age);
+            while (a < 0) {
+                std::cout << "Age must be an non negative integer. type again:";
+                std::getline(std::cin, age);
+                a = mystoi(age);
+            }
+            std::cout << "Department:";
+            std::getline(std::cin, department);
+            auto res = mybpt->insert(key, name, a, department);
+
+            std::cout << (res ? "Successfully Inserted!\n\n"
+                              : "Insertion Failed!\n\n");
+        } else if (parsed[0] == "DELETE" && parsed.size() == 2) {
+            mybpt->remove(parsed[1]);
+        } else if (parsed[0] == "PRINT") {
+            mybpt->printTree();
+        } else if (parsed[0] == "EXIT" || parsed[0] == "QUIT") {
+            std::cout << "\nBye\n";
+            exit(0);
+        } else {
+            std::cout << "\n[Commands]\n";
+            std::cout << "HELP: Show this Page\n";
+            std::cout << "FIND <Search Key>: Find Record with Search Key\n";
+            std::cout << "INSERT <Search Key> <Name> <Age> <Department>: "
+                         "Insert New Record \n";
+            std::cout << "DELETE <Search Key>: Delete Record such that having "
+                         "<Search Key>\n";
+            std::cout << "PRINT: Print This Tree in Level order(left to right "
+                         "in the same level)\n";
+            std::cout << "EXIT or QUIT: Exit the Program.\n";
+        }
+    }
     return 0;
 }
