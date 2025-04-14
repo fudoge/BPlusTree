@@ -755,7 +755,7 @@ int main(int argc, char* argv[]) {
             parsed.emplace_back(temp);
         }
         if (parsed.empty()) {
-            exit(0);
+            continue;
         }
 
         if (parsed[0] == "FIND") {
